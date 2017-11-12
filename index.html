@@ -40,6 +40,19 @@
     </label>
 </div>
 
+<p>
+    <b>Usage:</b><br>
+    <i>Hold primary button:</i> draw line.<br>
+    <i>Secondary or middle button:</i> toggle gravity point.
+</p>
+
+<p>
+    <b>Browser support:</b><br>
+    Works best in a desktop browser with <a href="https://developer.mozilla.org/en-US/docs/Web/API/PointerEvent/getCoalescedEvents">getCoalescedEvents()</a> support (as of writing only Chrome 58+).<br>
+    Touch input is supported, but it is not accurate because there is no API for coalesced touch events.</br>
+    Does not play accurately with UI scaling as that would require browser support for fractional coordinates, which as of writing have no browser support (<a href="https://github.com/w3c/pointerevents/issues/107">W3C issue</a>).
+</p>
+
 <script src="drawing.js?v=2"></script>
 
 </body>
