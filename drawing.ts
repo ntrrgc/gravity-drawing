@@ -3,19 +3,58 @@ const canvasCursorRenderer = <HTMLCanvasElement>document.getElementById("cursor-
 const canvasUserDrawing = <HTMLCanvasElement>document.getElementById("user-drawing");
 const canvasGravityHud = <HTMLCanvasElement>document.getElementById("gravity-hud");
 
+let gravityHoleRadius = -1; // to force initial update
+let gravityForceRadius = -1; // to force initial update
+
 for (let canvas of [canvasCursorRenderer, canvasUserDrawing, canvasGravityHud]) {
     canvas.width = canvasWidth;
     canvas.height = canvasHeight;
-    canvas.getContext("2d").clearRect(0, 0, canvasWidth, canvasHeight);
-    canvas.getContext("2d").translate(-.5, -.5);
+    canvas.getContext("2d")!.clearRect(0, 0, canvasWidth, canvasHeight);
+    canvas.getContext("2d")!.translate(-.5, -.5);
     canvas.style.width = canvasWidth / devicePixelRatio + "px";
     canvas.style.height = canvasHeight / devicePixelRatio + "px";
 }
 
-let canvasContainer = document.getElementById("canvas-container");
+let canvasContainer = <HTMLDivElement>document.getElementById("canvas-container");
 canvasContainer.style.width = canvasWidth / devicePixelRatio + "px";
 canvasContainer.style.height = canvasHeight / devicePixelRatio + "px";
 const canvasRect = canvasContainer.getBoundingClientRect();
+
+class GravityPoint {
+    public constructor(public gravityCenter: Point) {}
+
+    tryAttractPoint(ret: Point, x: number, y: number): Point | null {
+        const gravityCenter = this.gravityCenter;
+
+        const vx = x - gravityCenter.x;
+        const vy = y - gravityCenter.y;
+        const d = Math.sqrt(vx * vx + vy * vy);
+
+        if (d <= gravityHoleRadius) {
+            // Inside the black hole
+            ret.x = gravityCenter.x;
+            ret.y = gravityCenter.y;
+            return ret;
+        } else if (d < gravityForceRadius) {
+            // Near the black hole
+            const angle = Math.atan2(vy, vx);
+
+            const t = (d - gravityHoleRadius) / (gravityForceRadius - gravityHoleRadius);
+            const newD = t * gravityForceRadius;
+
+            ret.x = gravityCenter.x + Math.cos(angle) * newD;
+            ret.y = gravityCenter.y + Math.sin(angle) * newD;
+            return ret;
+        } else {
+            // Unaffected by this gravity point
+            return null;
+        }
+    }
+}
+
+const gravityPoints: GravityPoint[] = [
+    new GravityPoint({x: canvasWidth / 2, y: canvasHeight / 2}),
+];
 
 interface Point {x: number, y:number}
 function newPoint(): Point {
@@ -79,7 +118,7 @@ class DrawingUndoStack {
     }
 
     private replayCanvas(headIndex: number) {
-        const ctx = canvasUserDrawing.getContext("2d");
+        const ctx = canvasUserDrawing.getContext("2d")!;
         clearCanvas(ctx);
 
         for (let actionIndex = 0; actionIndex < this.headIndex; actionIndex++) {
@@ -114,10 +153,6 @@ class DrawingUndoStack {
 }
 
 const drawingUndoStack = new DrawingUndoStack();
-
-const gravityCenter: Point = {x: canvasWidth / 2, y: canvasHeight / 2};
-let gravityHoleRadius = -1; // to force initial update
-let gravityForceRadius = -1; // to force initial update
 
 // Convert event.pageX into coordinates of the canvas
 function rawClientPosToCanvasPos(destPoint: Point, rawPageX: number, rawPageY: number) {
@@ -215,7 +250,7 @@ function addDrawingListener(drawingActionListenerFactory: DrawingActionListenerF
     canvasCursorRenderer.addEventListener("touchstart", ev => {
         ev.preventDefault();
         for (let i = 0; i < ev.changedTouches.length; i++) {
-            const touch = ev.changedTouches.item(i);
+            const touch = ev.changedTouches.item(i)!;
 
             const canvasPos = rawClientPosToCanvasPos(newPoint(), touch.pageX, touch.pageY);
             touchDrawingActionMap.set(touch.identifier, drawingActionListenerFactory.drawingActionStarted(canvasPos));
@@ -224,7 +259,7 @@ function addDrawingListener(drawingActionListenerFactory: DrawingActionListenerF
     canvasCursorRenderer.addEventListener("touchend", ev => {
         ev.preventDefault();
         for (let i = 0; i < ev.changedTouches.length; i++) {
-            const touch = ev.changedTouches.item(i);
+            const touch = ev.changedTouches.item(i)!;
 
             touchDrawingActionMap.get(touch.identifier)!.actionFinished();
             touchDrawingActionMap.delete(touch.identifier);
@@ -233,7 +268,7 @@ function addDrawingListener(drawingActionListenerFactory: DrawingActionListenerF
     canvasCursorRenderer.addEventListener("touchmove", ev => {
         ev.preventDefault();
         for (let i = 0; i < ev.changedTouches.length; i++) {
-            const touch = ev.changedTouches.item(i);
+            const touch = ev.changedTouches.item(i)!;
 
             const canvasPos = rawClientPosToCanvasPos(newPoint(), touch.pageX, touch.pageY);
             touchDrawingActionMap.get(touch.identifier)!.pointerMoved(canvasPos);
@@ -263,53 +298,54 @@ function drawCrosshair(ctx: CanvasRenderingContext2D, x: number, y: number, cros
 }
 
 function drawCanvasGravityHud() {
-    const ctx = canvasGravityHud.getContext("2d");
+    const ctx = canvasGravityHud.getContext("2d")!;
     clearCanvas(ctx);
     ctx.strokeStyle = "#AAAAAA";
 
-    drawCrosshair(ctx, gravityCenter.x, gravityCenter.y, 2);
+    for (let gravityPoint of gravityPoints) {
+        const gravityCenter = gravityPoint.gravityCenter;
 
-    ctx.beginPath();
-    ctx.arc(gravityCenter.x, gravityCenter.y, gravityHoleRadius, 0, 360);
-    ctx.stroke();
+        drawCrosshair(ctx, gravityCenter.x, gravityCenter.y, 2);
 
-    ctx.beginPath();
-    ctx.arc(gravityCenter.x, gravityCenter.y, gravityForceRadius, 0, 360);
-    ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(gravityCenter.x, gravityCenter.y, gravityHoleRadius, 0, 360);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(gravityCenter.x, gravityCenter.y, gravityForceRadius, 0, 360);
+        ctx.stroke();
+    }
 }
 
 function transformCursorPosition(ret: Point, x: number, y: number): Point {
+    const gravityAttractions = [];
 
-    const vx = x - gravityCenter.x;
-    const vy = y - gravityCenter.y;
-    const d = Math.sqrt(vx * vx + vy * vy);
+    for (let gravityPoint of gravityPoints) {
+        const attractionPoint = gravityPoint.tryAttractPoint(newPoint(), x, y);
+        if (attractionPoint != null) {
+            gravityAttractions.push(attractionPoint);
+        }
+    }
 
-    if (d <= gravityHoleRadius) {
-        // Inside the black hole
-        ret.x = gravityCenter.x;
-        ret.y = gravityCenter.y;
-    } else if (d < gravityForceRadius) {
-        // Near the black hole
-        const angle = Math.atan2(vy, vx);
-
-        const t = (d - gravityHoleRadius) / (gravityForceRadius - gravityHoleRadius);
-        const newD = t * gravityForceRadius;
-
-        ret.x = gravityCenter.x + Math.cos(angle) * newD;
-        ret.y = gravityCenter.y + Math.sin(angle) * newD;
+    if (gravityAttractions.length > 0) {
+        let xTotal = 0, yTotal = 0;
+        for (let point of gravityAttractions) {
+            xTotal += point.x;
+            yTotal += point.y;
+        }
+        ret.x = xTotal / gravityAttractions.length;
+        ret.y = yTotal / gravityAttractions.length;
     } else {
-        // Unaffected by gravity.
         ret.x = x;
         ret.y = y;
     }
-
     return ret;
 }
 
 let lastCursorPosition: Point|null;
 addCursorMovementListener((x, y) => {
     // Draw crosshair
-    const ctx = canvasCursorRenderer.getContext("2d");
+    const ctx = canvasCursorRenderer.getContext("2d")!;
     const crossRadius = 3;
 
     if (lastCursorPosition != null) {
@@ -330,7 +366,7 @@ addCursorMovementListener((x, y) => {
 
 addDrawingListener({
     drawingActionStarted: (startCanvasPos) => {
-        const ctx = canvasUserDrawing.getContext("2d");
+        const ctx = canvasUserDrawing.getContext("2d")!;
         let previousCanvasPos = startCanvasPos;
         const drawingAction = new DrawingAction();
 
