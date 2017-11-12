@@ -509,5 +509,9 @@ document.addEventListener("keydown", ev => {
     } else if (ev.keyCode == 69) { // E
         ev.preventDefault();
         addGravityPointOnLineEnd();
+    } else if (ev.keyCode == 68) { // D
+        ev.preventDefault();
+        gravityPoints.splice(0, gravityPoints.length);
+        drawCanvasGravityHud();
     }
 });
