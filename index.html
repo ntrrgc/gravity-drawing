@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Gravity drawing</title>
+    <style>
+        #canvas-container {
+            border: 1px solid black;
+            position: relative;
+        }
+        #canvas-container canvas {
+            position: absolute;
+            background: transparent;
+        }
+    </style>
+</head>
+<body>
+
+<div id="canvas-container">
+    <canvas id="user-drawing"></canvas>
+    <canvas id="gravity-hud"></canvas>
+    <canvas id="cursor-renderer"></canvas>
+</div>
+<div>
+    <button onclick="clearUserDrawingCanvas()">Clear canvas</button>
+    <label>
+        <input type="checkbox" id="chkHideCursor" checked="checked" onchange="updatedOptions()">
+        Hide browser cursor
+    </label>
+    <label>
+        <input type="range" id="sldHoleRadius" min="1" max="300" value="20" oninput="updatedOptions()">
+        Hole radius
+    </label>
+    <label>
+        <input type="range" id="sldForceRadius" min="1" max="640" value="100" oninput="updatedOptions()">
+        Force radius
+    </label>
+</div>
+
+<script src="drawing.js"></script>
+
+</body>
+</html>
