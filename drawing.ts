@@ -154,50 +154,61 @@ interface DrawingActionListenerFactory {
     drawingActionStarted(startCanvasPos: Point): DrawingActionListener;
 }
 
-function addDrawingListener(drawingActionListenerFactory: DrawingActionListenerFactory) {
-    // Mouse handler
-    let currentMouseDrawingAction: DrawingActionListener | null = null;
+interface EventDisconnector {
+    disconnectEventListener(): void;
+}
 
-    canvasCursorRenderer.addEventListener("mousedown", ev => {
-        if (ev.button == 0) {
-            const initialCanvasPoint = rawClientPosToCanvasPos(newPoint(), ev.pageX, ev.pageY);
-            currentMouseDrawingAction = drawingActionListenerFactory.drawingActionStarted(initialCanvasPoint);
-        }
-    });
-    canvasCursorRenderer.addEventListener("mouseup", ev => {
-        if (ev.button == 0 && currentMouseDrawingAction != null) {
-            currentMouseDrawingAction.actionFinished();
-            currentMouseDrawingAction = null;
-        }
-    });
-
-    const cachePoint = newPoint(); // only used by propagateMovement()
-    function propagateMovement(previousMousePos: Point, rawPageX: number, rawPageY: number) {
-        rawClientPosToCanvasPos(cachePoint, rawPageX, rawPageY);
-        const segment = new DrawingSegment(previousMousePos.x, previousMousePos.y, cachePoint.x, cachePoint.y);
-
-
-
-        previousMousePos.x = cachePoint.x;
-        previousMousePos.y = cachePoint.y;
-    }
-
+function addImprovedMouseMoveListener(node: Node, listener: (ev: MouseEvent) => void): EventDisconnector {
     if ("PointerEvent" in window && "getCoalescedEvents" in PointerEvent.prototype) {
-        canvasCursorRenderer.addEventListener("pointermove", (ev) => {
+        function pointerMoveListener(ev: MouseEvent) {
             const coalescedEvents: PointerEvent[] = (<any>ev).getCoalescedEvents();
             for (let event of coalescedEvents) {
-                if (currentMouseDrawingAction != null) {
-                    currentMouseDrawingAction.pointerMoved(rawClientPosToCanvasPos(newPoint(), event.pageX, event.pageY));
-                }
+                listener(event);
             }
-        })
+        }
+
+        node.addEventListener("pointermove", pointerMoveListener);
+        return {
+            disconnectEventListener() {
+                node.removeEventListener("pointermove", pointerMoveListener);
+            }
+        }
     } else {
-        canvasCursorRenderer.addEventListener("mousemove", event => {
-            if (currentMouseDrawingAction != null) {
-                currentMouseDrawingAction.pointerMoved(rawClientPosToCanvasPos(newPoint(), event.pageX, event.pageY));
+        function mouseMoveListener(ev: MouseEvent) {
+            listener(ev);
+        }
+
+        node.addEventListener("mousemove", mouseMoveListener);
+        return {
+            disconnectEventListener() {
+                node.removeEventListener("mousemove", mouseMoveListener);
+            }
+        }
+    }
+}
+
+function addDrawingListener(drawingActionListenerFactory: DrawingActionListenerFactory) {
+    // Mouse and pen handler
+    canvasCursorRenderer.addEventListener("mousedown", ev => {
+        if (ev.button != 0)
+            return;
+
+        const currentMouseDrawingAction = drawingActionListenerFactory.drawingActionStarted(
+            rawClientPosToCanvasPos(newPoint(), ev.pageX, ev.pageY));
+
+        const mouseMoveListenerDisconnector = addImprovedMouseMoveListener(document, ev => {
+            const canvasPos = rawClientPosToCanvasPos(newPoint(), ev.pageX, ev.pageY);
+            currentMouseDrawingAction.pointerMoved(canvasPos);
+        });
+
+        document.addEventListener("mouseup", function mouseUpListener(ev) {
+            if (ev.button == 0) {
+                currentMouseDrawingAction.actionFinished();
+                document.removeEventListener("mouseup", mouseUpListener);
+                mouseMoveListenerDisconnector.disconnectEventListener();
             }
         });
-    }
+    });
 
     // Touch handler
     const touchDrawingActionMap = new Map<number, DrawingActionListener>();
@@ -326,7 +337,6 @@ addDrawingListener({
         return {
             pointerMoved(newCanvasPos: Point) {
                 const segment = new DrawingSegment(previousCanvasPos.x, previousCanvasPos.y, newCanvasPos.x, newCanvasPos.y);
-                console.log(segment)
                 segment.stroke(ctx);
                 drawingAction.segments.push(segment);
                 previousCanvasPos = newCanvasPos;
