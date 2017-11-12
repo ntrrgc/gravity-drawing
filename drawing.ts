@@ -364,6 +364,22 @@ function drawCrosshair(ctx: CanvasRenderingContext2D, x: number, y: number, cros
     ctx.stroke();
 }
 
+function drawDiagonalCrosshair(ctx: CanvasRenderingContext2D, x: number, y: number, crossRadius: number) {
+    const topY = y - crossRadius;
+    const bottomY = y + crossRadius;
+
+    const leftX = x - crossRadius;
+    const rightX = x + crossRadius;
+
+    ctx.beginPath();
+    ctx.moveTo(leftX, topY);
+    ctx.lineTo(rightX, bottomY);
+    ctx.moveTo(leftX, bottomY);
+    ctx.lineTo(rightX, topY);
+    ctx.stroke();
+}
+
+
 function drawCanvasGravityHud() {
     const ctx = canvasGravityHud.getContext("2d")!;
     clearCanvas(ctx);
@@ -372,7 +388,7 @@ function drawCanvasGravityHud() {
     for (let gravityPoint of gravityPoints) {
         const gravityCenter = gravityPoint.gravityCenter;
 
-        drawCrosshair(ctx, gravityCenter.x, gravityCenter.y, 2);
+        drawDiagonalCrosshair(ctx, gravityCenter.x, gravityCenter.y, 2);
 
         ctx.beginPath();
         ctx.arc(gravityCenter.x, gravityCenter.y, gravityHoleRadius, 0, 360);
