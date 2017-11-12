@@ -123,6 +123,14 @@ class DrawingUndoStack {
         btnRedo.disabled = !this.canRedo();
     }
 
+    getHeadAction(): DrawingAction | null {
+        if (this.headIndex > 0) {
+            return this.stack[this.headIndex - 1];
+        } else {
+            return null;
+        }
+    }
+
     pushNewAction(drawingAction: DrawingAction) {
         // Clear everything previously undone in the stack
         this.stack.splice(this.headIndex, this.stack.length - this.headIndex);
@@ -464,12 +472,42 @@ function updatedOptions() {
 updatedOptions();
 drawingUndoStack.updateUiButtons();
 
+function addGravityPointOnLineStart() {
+    const currentAction = drawingUndoStack.getHeadAction();
+    if (!currentAction)
+        return;
+
+    const firstSegment = currentAction.segments[0];
+    gravityPoints.push(new GravityPoint({x: firstSegment.ax, y: firstSegment.ay}));
+    drawCanvasGravityHud();
+}
+
+function addGravityPointOnLineEnd() {
+    const currentAction = drawingUndoStack.getHeadAction();
+    if (!currentAction)
+        return;
+
+    const lastSegment = currentAction.segments[currentAction.segments.length - 1];
+    gravityPoints.push(new GravityPoint({x: lastSegment.bx, y: lastSegment.by}));
+    drawCanvasGravityHud();
+}
+
 document.addEventListener("keydown", ev => {
-    if (ev.keyCode == 90 && drawingUndoStack.canUndo()) { // Z
+    if (ev.keyCode == 90) { // Z
         ev.preventDefault();
-        drawingUndoStack.undo();
-    } else if (ev.keyCode == 89 && drawingUndoStack.canRedo()) { // Y
+        if (drawingUndoStack.canUndo()) {
+            drawingUndoStack.undo();
+        }
+    } else if (ev.keyCode == 89) { // Y
         ev.preventDefault();
-        drawingUndoStack.redo();
+        if (drawingUndoStack.canRedo()) {
+            drawingUndoStack.redo();
+        }
+    } else if (ev.keyCode == 65) { // A
+        ev.preventDefault();
+        addGravityPointOnLineStart();
+    } else if (ev.keyCode == 69) { // E
+        ev.preventDefault();
+        addGravityPointOnLineEnd();
     }
 });
