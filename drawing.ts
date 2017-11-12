@@ -22,6 +22,99 @@ function newPoint(): Point {
     return {x: 0, y: 0};
 }
 
+class DrawingSegment {
+    constructor(public ax: number, public ay: number, public bx: number, public by: number) {}
+
+    stroke(ctx: CanvasRenderingContext2D) {
+        ctx.beginPath();
+        ctx.moveTo(this.ax, this.ay);
+        ctx.lineTo(this.bx, this.by);
+        ctx.stroke();
+    }
+}
+
+class DrawingAction {
+    segments: DrawingSegment[] = [];
+
+    replay(ctx: CanvasRenderingContext2D) {
+        for (let segment of this.segments) {
+            segment.stroke(ctx);
+        }
+    }
+}
+
+class DrawingUndoStack {
+    private stack: DrawingAction[] = [];
+    private headIndex: number = 0; // non-inclusive
+
+    canUndo() {
+        return this.headIndex > 0;
+    }
+
+    canRedo() {
+        return this.headIndex < this.stack.length;
+    }
+
+    updateUiButtons() {
+        // Update UI buttons
+        const btnUndo = <HTMLInputElement>document.getElementById("btnUndo");
+        const btnRedo = <HTMLInputElement>document.getElementById("btnRedo");
+
+        btnUndo.disabled = !this.canUndo();
+        btnRedo.disabled = !this.canRedo();
+    }
+
+    pushNewAction(drawingAction: DrawingAction) {
+        // Clear everything previously undone in the stack
+        this.stack.splice(this.headIndex, this.stack.length - this.headIndex);
+        if (this.stack.length != this.headIndex)
+            throw new Error("Assertion error");
+
+        // Push the new action and update head pointer
+        this.stack.push(drawingAction);
+        this.headIndex++;
+
+        // Update UI buttons
+        this.updateUiButtons();
+    }
+
+    private replayCanvas(headIndex: number) {
+        const ctx = canvasUserDrawing.getContext("2d");
+        clearCanvas(ctx);
+
+        for (let actionIndex = 0; actionIndex < this.headIndex; actionIndex++) {
+            const action = this.stack[actionIndex];
+            action.replay(ctx);
+        }
+    }
+
+    undo() {
+        if (this.headIndex <= 0)
+            throw new Error("Can't undo");
+
+        this.headIndex--;
+        this.replayCanvas(this.headIndex);
+        this.updateUiButtons();
+    }
+
+    undoAll() {
+        this.headIndex = 0;
+        this.replayCanvas(this.headIndex);
+        this.updateUiButtons();
+    }
+
+    redo() {
+        if (this.headIndex >= this.stack.length)
+            throw new Error("Can't redo");
+
+        this.headIndex++;
+        this.replayCanvas(this.headIndex);
+        this.updateUiButtons();
+    }
+}
+
+const drawingUndoStack = new DrawingUndoStack();
+
 const gravityCenter: Point = {x: canvasWidth / 2, y: canvasHeight / 2};
 let gravityHoleRadius = -1; // to force initial update
 let gravityForceRadius = -1; // to force initial update
@@ -52,27 +145,39 @@ function addCursorMovementListener(listener: (x: number, y: number) => void) {
     }
 }
 
-function addDrawingListener(listener: (ax: number, ay: number, bx: number, by: number) => void) {
+interface DrawingActionListener {
+    pointerMoved(newCanvasPos: Point): void;
+    actionFinished(): void;
+}
+
+interface DrawingActionListenerFactory {
+    drawingActionStarted(startCanvasPos: Point): DrawingActionListener;
+}
+
+function addDrawingListener(drawingActionListenerFactory: DrawingActionListenerFactory) {
     // Mouse handler
-    let previousMousePos: Point | null = null;
-    let mouseButtonIsDown = false;
+    let currentMouseDrawingAction: DrawingActionListener | null = null;
 
     canvasCursorRenderer.addEventListener("mousedown", ev => {
         if (ev.button == 0) {
-            previousMousePos = rawClientPosToCanvasPos(newPoint(), ev.pageX, ev.pageY);
-            mouseButtonIsDown = true;
+            const initialCanvasPoint = rawClientPosToCanvasPos(newPoint(), ev.pageX, ev.pageY);
+            currentMouseDrawingAction = drawingActionListenerFactory.drawingActionStarted(initialCanvasPoint);
         }
     });
     canvasCursorRenderer.addEventListener("mouseup", ev => {
-        if (ev.button == 0) {
-            mouseButtonIsDown = false;
+        if (ev.button == 0 && currentMouseDrawingAction != null) {
+            currentMouseDrawingAction.actionFinished();
+            currentMouseDrawingAction = null;
         }
     });
 
     const cachePoint = newPoint(); // only used by propagateMovement()
     function propagateMovement(previousMousePos: Point, rawPageX: number, rawPageY: number) {
         rawClientPosToCanvasPos(cachePoint, rawPageX, rawPageY);
-        listener(previousMousePos.x, previousMousePos.y, cachePoint.x, cachePoint.y);
+        const segment = new DrawingSegment(previousMousePos.x, previousMousePos.y, cachePoint.x, cachePoint.y);
+
+
+
         previousMousePos.x = cachePoint.x;
         previousMousePos.y = cachePoint.y;
     }
@@ -81,27 +186,28 @@ function addDrawingListener(listener: (ax: number, ay: number, bx: number, by: n
         canvasCursorRenderer.addEventListener("pointermove", (ev) => {
             const coalescedEvents: PointerEvent[] = (<any>ev).getCoalescedEvents();
             for (let event of coalescedEvents) {
-                if (mouseButtonIsDown) {
-                    propagateMovement(previousMousePos!, event.pageX, event.pageY);
+                if (currentMouseDrawingAction != null) {
+                    currentMouseDrawingAction.pointerMoved(rawClientPosToCanvasPos(newPoint(), event.pageX, event.pageY));
                 }
             }
         })
     } else {
         canvasCursorRenderer.addEventListener("mousemove", event => {
-            if (mouseButtonIsDown) {
-                propagateMovement(previousMousePos!, event.pageX, event.pageY)
+            if (currentMouseDrawingAction != null) {
+                currentMouseDrawingAction.pointerMoved(rawClientPosToCanvasPos(newPoint(), event.pageX, event.pageY));
             }
         });
     }
 
     // Touch handler
-    const touchPreviousPosMap = new Map<number, Point>();
+    const touchDrawingActionMap = new Map<number, DrawingActionListener>();
     canvasCursorRenderer.addEventListener("touchstart", ev => {
         ev.preventDefault();
         for (let i = 0; i < ev.changedTouches.length; i++) {
             const touch = ev.changedTouches.item(i);
 
-            touchPreviousPosMap.set(touch.identifier, rawClientPosToCanvasPos(newPoint(), touch.pageX, touch.pageY));
+            const canvasPos = rawClientPosToCanvasPos(newPoint(), touch.pageX, touch.pageY);
+            touchDrawingActionMap.set(touch.identifier, drawingActionListenerFactory.drawingActionStarted(canvasPos));
         }
     });
     canvasCursorRenderer.addEventListener("touchend", ev => {
@@ -109,7 +215,8 @@ function addDrawingListener(listener: (ax: number, ay: number, bx: number, by: n
         for (let i = 0; i < ev.changedTouches.length; i++) {
             const touch = ev.changedTouches.item(i);
 
-            touchPreviousPosMap.delete(touch.identifier);
+            touchDrawingActionMap.get(touch.identifier)!.actionFinished();
+            touchDrawingActionMap.delete(touch.identifier);
         }
     });
     canvasCursorRenderer.addEventListener("touchmove", ev => {
@@ -117,7 +224,8 @@ function addDrawingListener(listener: (ax: number, ay: number, bx: number, by: n
         for (let i = 0; i < ev.changedTouches.length; i++) {
             const touch = ev.changedTouches.item(i);
 
-            propagateMovement(touchPreviousPosMap.get(touch.identifier), touch.pageX, touch.pageY);
+            const canvasPos = rawClientPosToCanvasPos(newPoint(), touch.pageX, touch.pageY);
+            touchDrawingActionMap.get(touch.identifier)!.pointerMoved(canvasPos);
         }
     });
 }
@@ -209,18 +317,29 @@ addCursorMovementListener((x, y) => {
     lastCursorPosition.y = y;
 });
 
-addDrawingListener((ax, ay, bx, by) => {
-    const ctx = canvasUserDrawing.getContext("2d");
+addDrawingListener({
+    drawingActionStarted: (startCanvasPos) => {
+        const ctx = canvasUserDrawing.getContext("2d");
+        let previousCanvasPos = startCanvasPos;
+        const drawingAction = new DrawingAction();
 
-    ctx.beginPath();
-    ctx.moveTo(ax, ay);
-    ctx.lineTo(bx, by);
-    ctx.stroke();
+        return {
+            pointerMoved(newCanvasPos: Point) {
+                const segment = new DrawingSegment(previousCanvasPos.x, previousCanvasPos.y, newCanvasPos.x, newCanvasPos.y);
+                console.log(segment)
+                segment.stroke(ctx);
+                drawingAction.segments.push(segment);
+                previousCanvasPos = newCanvasPos;
+            },
+            actionFinished() {
+                drawingUndoStack.pushNewAction(drawingAction);
+            }
+        };
+    }
 });
 
 function clearUserDrawingCanvas() {
-    const ctx = canvasUserDrawing.getContext("2d");
-    clearCanvas(ctx);
+    drawingUndoStack.undoAll();
 }
 
 function updatedOptions() {
@@ -238,3 +357,14 @@ function updatedOptions() {
 }
 
 updatedOptions();
+drawingUndoStack.updateUiButtons();
+
+document.addEventListener("keydown", ev => {
+    if (ev.keyCode == 90 && drawingUndoStack.canUndo()) { // Z
+        ev.preventDefault();
+        drawingUndoStack.undo();
+    } else if (ev.keyCode == 89 && drawingUndoStack.canRedo()) { // Y
+        ev.preventDefault();
+        drawingUndoStack.redo();
+    }
+});

@@ -24,6 +24,8 @@
 </div>
 <div>
     <button onclick="clearUserDrawingCanvas()">Clear canvas</button>
+    <button id="btnUndo" onclick="drawingUndoStack.undo()">Undo</button>
+    <button id="btnRedo" onclick="drawingUndoStack.redo()">Redo</button>
     <label>
         <input type="checkbox" id="chkHideCursor" checked="checked" onchange="updatedOptions()">
         Hide browser cursor
