@@ -61,6 +61,26 @@ function newPoint(): Point {
     return {x: 0, y: 0};
 }
 
+function minBy<T, K>(list: T[], keyFn: (element: T) => K): {element: T; key: K} | null {
+    let minimum: {
+        element: T,
+        key: K
+    } | null = null;
+
+    for (let element of list) {
+        const elementKey = keyFn(element);
+
+        if (minimum == null || elementKey < minimum.key) {
+            minimum = {
+                element: element,
+                key: elementKey,
+            }
+        }
+    }
+
+    return minimum;
+}
+
 class DrawingSegment {
     constructor(public ax: number, public ay: number, public bx: number, public by: number) {}
 
@@ -222,27 +242,66 @@ function addImprovedMouseMoveListener(node: Node, listener: (ev: MouseEvent) => 
     }
 }
 
+function squareDistance(a: Point, b: Point) {
+    const horizontalDistance = b.x - a.x;
+    const verticalDistance = b.y - a.y;
+    return horizontalDistance * horizontalDistance + verticalDistance * verticalDistance;
+}
+
+function findNearGravityPoint(canvasPos: Point) {
+    const nearest = minBy(gravityPoints, gravityPoint => squareDistance(canvasPos, gravityPoint.gravityCenter));
+    if (!nearest) {
+        // There are no gravity points in the canvas
+        return null;
+    }
+
+    const minimumDistance = 10 * devicePixelRatio;
+    if (nearest.key > (minimumDistance * minimumDistance)) {
+        // The nearest point is still too far from the cursor
+        return null;
+    }
+
+    return nearest.element;
+}
+
+function toggleGravity(clickCanvasPos: Point) {
+    const nearGravityPoint = findNearGravityPoint(clickCanvasPos);
+    if (nearGravityPoint) {
+        // Delete it
+        gravityPoints.splice(gravityPoints.indexOf(nearGravityPoint), 1);
+    } else {
+        // Add a new gravity point
+        gravityPoints.push(new GravityPoint(clickCanvasPos));
+    }
+
+    drawCanvasGravityHud();
+}
+
 function addDrawingListener(drawingActionListenerFactory: DrawingActionListenerFactory) {
     // Mouse and pen handler
     canvasCursorRenderer.addEventListener("mousedown", ev => {
-        if (ev.button != 0)
-            return;
+        const clickCanvasPos = rawClientPosToCanvasPos(newPoint(), ev.pageX, ev.pageY);
 
-        const currentMouseDrawingAction = drawingActionListenerFactory.drawingActionStarted(
-            rawClientPosToCanvasPos(newPoint(), ev.pageX, ev.pageY));
+        if (ev.button == 0) {
+            // Primary button: start drawing
+            const currentMouseDrawingAction = drawingActionListenerFactory.drawingActionStarted(clickCanvasPos);
 
-        const mouseMoveListenerDisconnector = addImprovedMouseMoveListener(document, ev => {
-            const canvasPos = rawClientPosToCanvasPos(newPoint(), ev.pageX, ev.pageY);
-            currentMouseDrawingAction.pointerMoved(canvasPos);
-        });
+            const mouseMoveListenerDisconnector = addImprovedMouseMoveListener(document, ev => {
+                const canvasPos = rawClientPosToCanvasPos(newPoint(), ev.pageX, ev.pageY);
+                currentMouseDrawingAction.pointerMoved(canvasPos);
+            });
 
-        document.addEventListener("mouseup", function mouseUpListener(ev) {
-            if (ev.button == 0) {
-                currentMouseDrawingAction.actionFinished();
-                document.removeEventListener("mouseup", mouseUpListener);
-                mouseMoveListenerDisconnector.disconnectEventListener();
-            }
-        });
+            document.addEventListener("mouseup", function mouseUpListener(ev) {
+                if (ev.button == 0) {
+                    currentMouseDrawingAction.actionFinished();
+                    document.removeEventListener("mouseup", mouseUpListener);
+                    mouseMoveListenerDisconnector.disconnectEventListener();
+                }
+            });
+        } else {
+            // Secondary button: toggle gravity
+            toggleGravity(clickCanvasPos);
+        }
     });
 
     // Touch handler
